@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Technical Assessment — SBM Offshore</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Blocked on phones / tablets -->
+  <section id="screen-mobile" class="screen hidden">
+    <div class="card center">
+      <h1>Computer required</h1>
+      <p>This test is available on a computer only (Windows, macOS or Linux, with a physical keyboard).</p>
+      <p>Please open this link again from a laptop or desktop computer.</p>
+    </div>
+  </section>
+
+  <!-- Welcome / registration -->
+  <section id="screen-intro" class="screen hidden">
+    <div class="card">
+      <div class="brand">SBM Offshore · Technical Direction</div>
+      <h1>Technical Assessment</h1>
+      <p>This short online test is part of your application. It contains <strong id="intro-total">30</strong> questions on .NET / C#, Angular / TypeScript, SQL and software architecture.</p>
+
+      <ul class="rules">
+        <li><strong>Quick questions</strong>: you have <strong id="intro-fast">5</strong> seconds to answer. Trust your first instinct.</li>
+        <li><strong>Thinking questions</strong>: you have <strong id="intro-slow">30</strong> seconds. Some show a code snippet.</li>
+        <li>One question at a time, <strong>no going back</strong>. When the timer ends, the question is submitted automatically.</li>
+        <li>The test runs in <strong>fullscreen</strong>. If you leave fullscreen, the current question is lost.</li>
+        <li>Expected duration: about 8 minutes. Make sure you will not be interrupted.</li>
+      </ul>
+
+      <div class="notice">
+        <strong>This test is monitored.</strong> Copy, cut, paste and right-click are disabled in this page. Text selection, copy attempts, keyboard shortcuts, tab or window switching, resizing, fullscreen exits and typing patterns are recorded together with your answers and reviewed by the recruiter. The use of external help (people, search engines, AI assistants) is not allowed and will be discussed during the interview.
+      </div>
+
+      <form id="form-intro" autocomplete="off">
+        <div class="grid">
+          <label>First name <input id="firstName" required maxlength="80"></label>
+          <label>Last name <input id="lastName" required maxlength="80"></label>
+        </div>
+        <label>Current company <input id="company" required maxlength="120"></label>
+        <label class="check"><input type="checkbox" id="consent" required> I have read the rules above and I accept that my answers and activity during the test are recorded.</label>
+        <p id="intro-error" class="error hidden"></p>
+        <button type="submit" id="btn-start" class="primary">Start the test in fullscreen</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Get ready countdown -->
+  <section id="screen-prep" class="screen hidden">
+    <div class="card center prep">
+      <div class="badge" id="prep-badge">Question 1 / 30</div>
+      <h1 id="prep-title">Get ready…</h1>
+      <div class="big" id="prep-count">2</div>
+    </div>
+  </section>
+
+  <!-- Question -->
+  <section id="screen-question" class="screen hidden">
+    <div class="card question">
+      <div class="qhead">
+        <span class="badge" id="q-progress">Question 1 / 30</span>
+        <span class="badge cat" id="q-category">.NET</span>
+        <span class="badge speed" id="q-speed">QUICK · 5 s</span>
+        <span class="timer" id="q-timer">5</span>
+      </div>
+      <div class="timerbar"><div id="q-bar"></div></div>
+      <p class="qtext" id="q-text"></p>
+      <pre class="code hidden" id="q-code"></pre>
+      <div id="q-options" class="options"></div>
+      <div id="q-textwrap" class="hidden">
+        <input id="q-input" class="answer" autocomplete="off" spellcheck="false" placeholder="Type your answer">
+      </div>
+      <div class="qfoot">
+        <span class="hint" id="q-hint"></span>
+        <button id="btn-submit" class="primary">Submit</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Fullscreen lost -->
+  <section id="screen-fullscreen" class="screen overlay hidden">
+    <div class="card center">
+      <h1>Fullscreen required</h1>
+      <p>You left fullscreen mode. The current question has been marked as unanswered.</p>
+      <p>Return to fullscreen to continue with the next question.</p>
+      <button id="btn-fullscreen" class="primary">Return to fullscreen</button>
+    </div>
+  </section>
+
+  <!-- Result -->
+  <section id="screen-result" class="screen hidden">
+    <div class="card center">
+      <div class="brand">SBM Offshore · Technical Direction</div>
+      <h1>Test completed</h1>
+      <p>Thank you, <span id="r-name"></span>.</p>
+      <div class="big" id="r-percent">0 %</div>
+      <p id="r-score"></p>
+      <div id="r-categories" class="cats"></div>
+      <p class="muted">Your results and activity log have been sent to the recruiter. You can close this window.</p>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
