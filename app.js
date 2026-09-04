@@ -6,6 +6,7 @@
   // =========================================================================
   const API_URL = 'https://script.google.com/macros/s/AKfycbytspFtRz2ZdoM53m-56cvmcDTj-fIn1qRxHolEDV4w3lE_40nxdOkpr0TmTnVP_3c/exec';
 
+
   const BLOCK_COPY = true;   // false = la copie fonctionne mais reste journalisée silencieusement
   const CATEGORY_LABELS = { dotnet: '.NET / C#', angular: 'Angular / TypeScript', sql: 'SQL', archi: 'Architecture' };
 
@@ -36,26 +37,46 @@
   // API (Apps Script : POST en text/plain pour éviter le pré-vol CORS, redirection suivie)
   // -------------------------------------------------------------------------
   async function api(action, payload, opts) {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      redirect: 'follow',
-      keepalive: !!(opts && opts.keepalive),
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ action }, payload || {})),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data && data.error) throw new Error(data.error);
-    return data;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), (opts && opts.timeoutMs) || 25000);   // never wait forever on a slow script
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        redirect: 'follow',
+        keepalive: !!(opts && opts.keepalive),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ action }, payload || {})),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      if (data && data.error) throw new Error(data.error);
+      return data;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
+  // Monitoring signals are queued and sent one at a time so they never compete with the test itself
+  const incidentQueue = [];
+  let incidentBusy = false;
   function incident(type, detail) {
     if (!state.sessionId) return Promise.resolve();
-    return api('incident', {
-      sessionId: state.sessionId, type,
-      detail: detail == null ? null : String(detail).slice(0, 300),
-      questionIndex: state.question ? state.question.index : null,
-    }, { keepalive: true }).catch(() => { /* never block the test on monitoring */ });
+    if (type === 'selection' && incidentQueue.some((i) => i.type === 'selection')) return Promise.resolve();   // throttle
+    return new Promise((resolve) => {
+      incidentQueue.push({ type, detail: detail == null ? null : String(detail).slice(0, 300), questionIndex: state.question ? state.question.index : null, resolve });
+      pumpIncidents();
+    });
+  }
+  async function pumpIncidents() {
+    if (incidentBusy) return;
+    incidentBusy = true;
+    while (incidentQueue.length) {
+      const it = incidentQueue.shift();
+      try { await api('incident', { sessionId: state.sessionId, type: it.type, detail: it.detail, questionIndex: it.questionIndex }, { timeoutMs: 12000 }); } catch (_) { /* ignore */ }
+      it.resolve();
+    }
+    incidentBusy = false;
   }
 
   // -------------------------------------------------------------------------
@@ -146,18 +167,22 @@
   // -------------------------------------------------------------------------
   // "Get ready" : le compte à rebours tourne pendant que la question suivante se charge
   // -------------------------------------------------------------------------
-  function prep(index, pendingPromise) {
+  function prep(index, pendingPromise, attempt) {
     state.status = 'prep';
     state.question = null;
     stopTimer();
     show('screen-prep');
+    attempt = attempt || 0;
+    state.lastPrepIndex = index;
     $('prep-badge').textContent = `Question ${index + 1} / ${state.total}`;
-    $('prep-title').textContent = index === 0 ? 'Get ready…' : 'Next question…';
+    $('prep-title').textContent = attempt ? 'Slow connection, retrying…' : (index === 0 ? 'Get ready…' : 'Next question…');
 
     let next = null, revealAt = Date.now() + (state.config.prepSeconds || 3) * 1000;
+    const startedAt = Date.now();
     state.pending = pendingPromise.then((cur) => {
       if (cur.finished) { next = { finished: true }; return; }
       next = cur;
+      $('prep-badge').textContent = `Question ${cur.question.index + 1} / ${cur.question.total}`;   // real index (resume / reload)
       // The server deadline includes the "Get ready" time: reveal so that the candidate keeps the full answering time
       state.deadline = Date.now() + cur.question.secondsRemaining * 1000;
       revealAt = Math.min(revealAt, state.deadline - cur.question.seconds * 1000);
@@ -167,11 +192,15 @@
     state.prepHandle = setInterval(() => {
       if (state.status !== 'prep') { clearInterval(state.prepHandle); return; }
       const left = Math.max(0, Math.ceil((revealAt - Date.now()) / 1000));
-      $('prep-count').textContent = next ? left : (left || '…');
+      if (next) $('prep-count').textContent = left;
+      else {
+        $('prep-count').textContent = left || '…';
+        if (Date.now() - startedAt > 8000) $('prep-title').textContent = 'Loading the next question… please wait';
+      }
       if (!next || Date.now() < revealAt) return;
       clearInterval(state.prepHandle);
       if (next.finished) showResult();
-      else if (next.retry) prep(index, api('current', { sessionId: state.sessionId }));   // network hiccup: retry
+      else if (next.retry) setTimeout(() => prep(index, api('current', { sessionId: state.sessionId }), attempt + 1), Math.min(1000 * (attempt + 1), 5000));
       else renderQuestion(next.question);
     }, 100);
   }
@@ -330,7 +359,8 @@
       state.status = 'paused';
       stopTimer();
       $('screen-fullscreen').classList.remove('hidden');
-      await incident('fullscreen_exit', wasRunning ? 'left fullscreen during a question (question voided)' : 'left fullscreen between questions');
+      state.exitSignal = incident('fullscreen_exit', wasRunning ? 'left fullscreen during a question (question voided)' : 'left fullscreen between questions');
+      await state.exitSignal;
     }
   }
 
@@ -339,11 +369,10 @@
     $('screen-fullscreen').classList.add('hidden');
     if (state.status !== 'paused') return;
     installMonitoring();
+    if (state.exitSignal) await state.exitSignal;   // make sure the server has voided the interrupted question
     // The server already voided the interrupted question: fetch whatever is current now
-    let cur;
-    try { cur = await api('current', { sessionId: state.sessionId }); } catch (_) { cur = null; }
-    if (!cur || cur.finished) { showResult(); return; }
-    prep(cur.question.index, Promise.resolve(cur));
+    state.status = 'prep';
+    prep(state.question ? state.question.index + 1 : (state.lastPrepIndex || 0), api('current', { sessionId: state.sessionId }));
   }
 
   // -------------------------------------------------------------------------
@@ -434,7 +463,8 @@
 
     window.addEventListener('beforeunload', (e) => {
       if (!active()) return;
-      incident('unload', 'page closed or navigated away');
+      fetch(API_URL, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'incident', sessionId: state.sessionId, type: 'unload', detail: 'page closed or navigated away', questionIndex: state.question ? state.question.index : null }) }).catch(() => {});
       e.preventDefault();
       e.returnValue = '';
     });
